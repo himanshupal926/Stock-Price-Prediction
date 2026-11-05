@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock Trend Predictor - ML + Sentiment</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --text: #1a1d23; --muted: #626b7a; --line: #e3e6eb;
+    --accent: #3b5bdb; --up: #187a41; --down: #c92a2a; --warn-bg: #fff4d6; --warn-text: #6b4b00;
+    --shade: rgba(59, 91, 219, .08); --on-accent: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --card: #1d2026; --text: #eceef2; --muted: #9aa3b2; --line: #2d323b;
+      --accent: #7c96ff; --up: #4cc47f; --down: #ff7b7b; --warn-bg: #3a2f10; --warn-text: #ffd982;
+      --shade: rgba(124, 150, 255, .10); --on-accent: #10131a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #disclaimer { background: var(--warn-bg); color: var(--warn-text); padding: 10px 16px;
+                font-size: 13.5px; text-align: center; border-bottom: 1px solid var(--line); }
+  main { max-width: 980px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--shade); color: var(--accent); margin-left: 8px; vertical-align: middle; }
+  nav button { background: none; border: 0; padding: 8px 14px; font: inherit; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
+  nav button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  select, input[type=date] { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); }
+  button.primary { font: inherit; padding: 9px 18px; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); cursor: pointer; font-weight: 600; }
+  .hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+  .big { font-size: 34px; font-weight: 700; line-height: 1.1; }
+  .up { color: var(--up); } .down { color: var(--down); }
+  .bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 8px 0; }
+  .bar > span { display: block; height: 100%; background: var(--accent); }
+  .muted { color: var(--muted); } .small { font-size: 13px; }
+  .note { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-text); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+  .chip.positive { background: rgba(31,138,76,.15); color: var(--up); }
+  .chip.negative { background: rgba(201,42,42,.15); color: var(--down); }
+  .chip.neutral { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+  .readout { font-size: 13px; color: var(--muted); min-height: 20px; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+  svg { width: 100%; height: auto; display: block; cursor: crosshair; }
+  svg text { fill: var(--muted); font-size: 11px; }
+  .verdict { font-size: 17px; font-weight: 600; margin: 0 0 4px; }
+  ul.checks { list-style: none; padding: 0; margin: 0; }
+  ul.checks li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  ul.checks li:last-child { border-bottom: 0; }
+  .ok { color: var(--up); font-weight: 700; } .bad { color: var(--down); font-weight: 700; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="disclaimer" role="note">Educational demo only - not financial advice.</div>
+
+<main>
+  <header>
+    <h1>Stock Trend Predictor <span id="source-badge" class="badge" hidden></span></h1>
+    <nav>
+      <button id="tab-dash" class="active">Dashboard</button>
+      <button id="tab-metrics">Metrics</button>
+    </nav>
+  </header>
+
+  <!-- ================= Dashboard ================= -->
+  <section id="view-dash">
+    <div class="card">
+      <h2>Predict</h2>
+      <div class="controls">
+        <label>Ticker <select id="ticker"></select></label>
+        <label>As of date <input type="date" id="date"></label>
+        <button class="primary" id="go">Predict next-day trend</button>
+      </div>
+      <div class="hint">Leave the date empty to use the latest day. Click anywhere on a chart to pick that date.</div>
+    </div>
+
+    <div class="grid">
+      <div class="card" id="prediction">
+        <h2>Prediction</h2>
+        <div class="muted">Loading...</div>
+      </div>
+      <div class="card" id="day-news">
+        <h2>Headlines that day</h2>
+        <div class="muted">-</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Closing price <span class="small muted" style="text-transform:none;letter-spacing:0">(shaded = held-out test period)</span></h2>
+      <div class="readout" id="ro-price">&nbsp;</div>
+      <div id="chart-price"></div>
+    </div>
+    <div class="card">
+      <h2>News sentiment <span class="small muted" style="text-transform:none;letter-spacing:0">(daily average headline score, -1 to +1)</span></h2>
+      <div class="readout" id="ro-sent">&nbsp;</div>
+      <div id="chart-sent"></div>
+    </div>
+
+    <div class="card" id="sentiment-table-card">
+      <h2>Sentiment table <span class="small muted" style="text-transform:none;letter-spacing:0" id="sent-backend"></span></h2>
+      <table id="sentiment-table">
+        <thead><tr><th>Date</th><th>Headline</th><th class="num">Score</th><th>Label</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= Metrics ================= -->
+  <section id="view-metrics" hidden>
+    <div class="card" id="verdict-card"><div class="muted">Loading...</div></div>
+    <div class="card">
+      <h2>Baseline vs combined model (unseen test period)</h2>
+      <table id="metrics-table">
+        <thead><tr><th>Model</th><th class="num">Directional accuracy</th><th class="num">F1 (up days)</th><th class="num">Time-CV accuracy (train only)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="hint" id="metrics-note"></div>
+    </div>
+    <div class="card">
+      <h2>Leakage checks</h2>
+      <ul class="checks" id="leak-list"></ul>
+    </div>
+    <div class="card">
+      <h2>Split</h2>
+      <div id="split-info" class="small"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pct = (x, d = 1) => (x * 100).toFixed(d) + '%';
+const signed = x => (x >= 0 ? '+' : '') + x.toFixed(2);
+
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.detail || r.statusText);
+  }
+  return r.json();
+}
+
+let series = null;
+
+/* ---------------- charts (plain SVG, no libraries) ---------------- */
+function drawChart(host, readout, kind, ys, extra) {
+  const W = 900, H = 220, ml = 46, mr = 10, mt = 8, mb = 22;
+  const n = ys.length, dates = series.dates;
+  const pw = W - ml - mr, ph = H - mt - mb;
+  let lo = Math.min(...ys), hi = Math.max(...ys);
+  if (kind === 'bars') { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+  const pad = (hi - lo) * 0.06 || 1; lo -= pad; hi += pad;
+  const x = i => ml + (i / (n - 1)) * pw;
+  const y = v => mt + (1 - (v - lo) / (hi - lo)) * ph;
+
+  let g = '';
+  for (let k = 0; k <= 4; k++) {
+    const v = lo + (hi - lo) * k / 4, yy = y(v);
+    g += `<line x1="${ml}" x2="${W - mr}" y1="${yy}" y2="${yy}" stroke="var(--line)"/>` +
+         `<text x="${ml - 6}" y="${yy + 4}" text-anchor="end">${v.toFixed(kind === 'bars' ? 1 : 0)}</text>`;
+  }
+  const ts = dates.findIndex(d => d >= series.test_start);
+  if (ts > 0) g += `<rect x="${x(ts)}" y="${mt}" width="${W - mr - x(ts)}" height="${ph}" fill="var(--shade)"/>`;
+
+  let marks = '';
+  if (kind === 'line') {
+    marks = `<polyline fill="none" stroke="var(--accent)" stroke-width="1.6" points="${ys.map((v, i) => x(i).toFixed(1) + ',' + y(v).toFixed(1)).join(' ')}"/>`;
+  } else {
+    const bw = Math.max(0.8, pw / n), zero = y(0);
+    marks = ys.map((v, i) => `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${Math.min(y(v), zero).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.abs(y(v) - zero).toFixed(1)}" fill="${v >= 0 ? 'var(--up)' : 'var(--down)'}"/>`).join('');
+    marks += `<line x1="${ml}" x2="${W - mr}" y1="${zero}" y2="${zero}" stroke="var(--muted)" stroke-width=".6"/>`;
+  }
+  const axis = `<text x="${ml}" y="${H - 5}">${dates[0]}</text><text x="${W - mr}" y="${H - 5}" text-anchor="end">${dates[n - 1]}</text>`;
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img">${g}${marks}${axis}<line class="cur" y1="${mt}" y2="${mt + ph}" stroke="var(--muted)" stroke-dasharray="3 3" visibility="hidden"/></svg>`;
+
+  const svg = host.querySelector('svg'), cur = svg.querySelector('.cur');
+  const idxAt = e => {
+    const b = svg.getBoundingClientRect();
+    const px = (e.clientX - b.left) / b.width * W;
+    return Math.max(0, Math.min(n - 1, Math.round((px - ml) / pw * (n - 1))));
+  };
+  svg.addEventListener('mousemove', e => {
+    const i = idxAt(e);
+    cur.setAttribute('x1', x(i)); cur.setAttribute('x2', x(i)); cur.setAttribute('visibility', 'visible');
+    readout.textContent = extra(i);
+  });
+  svg.addEventListener('mouseleave', () => { cur.setAttribute('visibility', 'hidden'); readout.innerHTML = '&nbsp;'; });
+  svg.addEventListener('click', e => { $('#date').value = dates[idxAt(e)]; predict(); });
+}
+
+function drawCharts() {
+  drawChart($('#chart-price'), $('#ro-price'), 'line', series.close,
+    i => `${series.dates[i]}  close ${series.close[i].toFixed(2)}`);
+  drawChart($('#chart-sent'), $('#ro-sent'), 'bars', series.sent_day,
+    i => `${series.dates[i]}  daily sentiment ${signed(series.sent_day[i])}  (3-day avg ${signed(series.sent_3d[i])})`);
+}
+
+/* ---------------- dashboard ---------------- */
+async function loadTicker() {
+  const t = $('#ticker').value;
+  series = await api('/api/data?ticker=' + t);
+  drawCharts();
+  const s = await api('/api/sentiment?ticker=' + t + '&limit=25');
+  $('#sent-backend').textContent = '(scored with: ' + s.backend + ')';
+  $('#sentiment-table tbody').innerHTML = s.rows.map(r =>
+    `<tr><td>${r.date}</td><td>${esc(r.headline)}</td><td class="num">${signed(r.score)}</td>` +
+    `<td><span class="chip ${r.label}">${r.label}</span></td></tr>`).join('') ||
+    '<tr><td colspan="4" class="muted">No headlines.</td></tr>';
+  await predict();
+}
+
+async function predict() {
+  const t = $('#ticker').value, d = $('#date').value;
+  const box = $('#prediction'), news = $('#day-news');
+  try {
+    const p = await api('/api/predict?ticker=' + t + (d ? '&date=' + d : ''));
+    const up = p.trend === 'up';
+    const periodNote = {
+      train: 'This day is inside the training period, so the model has already seen how it turned out. Not a fair test.',
+      gap: 'This day sits in the one-day gap between training and test periods.',
+      test: ''
+    }[p.period];
+    box.innerHTML = `<h2>Prediction</h2>
+      <div class="muted small">${esc(p.ticker)} - as of ${p.as_of}${p.is_latest ? ' (latest day)' : ''}</div>
+      <div class="big ${up ? 'up' : 'down'}">${up ? 'Up' : 'Down'} ${up ? '&#9650;' : '&#9660;'}</div>
+      <div class="small">Chance the next trading day closes higher: <b>${pct(p.prob_up)}</b></div>
+      <div class="bar"><span style="width:${p.prob_up * 100}%"></span></div>
+      <div class="small muted">Price-only baseline says ${pct(p.prob_up_baseline)}. Sentiment: today ${signed(p.sent_day)}, 3-day avg ${signed(p.sent_3d)}.</div>
+      ${periodNote ? `<div class="note">${periodNote}</div>` : ''}`;
+    news.innerHTML = '<h2>Headlines that day</h2>' + (p.headlines.length
+      ? '<table><tbody>' + p.headlines.map(h =>
+          `<tr><td>${esc(h.headline)}</td><td class="num"><span class="chip ${h.label}">${signed(h.score)}</span></td></tr>`).join('') + '</tbody></table>'
+      : '<div class="muted small">No headlines on this day.</div>');
+  } catch (err) {
+    box.innerHTML = `<h2>Prediction</h2><div class="note">${esc(err.message)}</div>`;
+  }
+}
+
+/* ---------------- metrics ---------------- */
+async function loadMetrics() {
+  const r = await api('/api/evaluate');
+  const c = r.comparison, m = r.metrics, better = c.verdict === 'better';
+  $('#verdict-card').innerHTML = `
+    <p class="verdict ${better ? 'up' : 'down'}">${better ? 'Better than baseline' : 'Not better than baseline'}</p>
+    <div>${esc(c.message)}</div>
+    <div class="small muted" style="margin-top:6px">Accuracy gain ${signed(c.accuracy_gain * 100)} points
+      (approx. 95% interval ${signed(c.ci_low * 100)} to ${signed(c.ci_high * 100)}).
+      A result only counts as "better" if the gain is at least 1 point and the interval stays above zero.</div>`;
+  const row = (name, x, cv) => `<tr><td>${name}</td><td class="num">${pct(x.accuracy)}</td>` +
+    `<td class="num">${x.f1 == null ? '-' : pct(x.f1)}</td><td class="num">${cv == null ? '-' : pct(cv)}</td></tr>`;
+  $('#metrics-table tbody').innerHTML =
+    row('Always guess the common class', m.majority, null) +
+    row('Price only (baseline)', m.price_only, m.price_only.cv_accuracy) +
+    row('Price + sentiment', m.combined, m.combined.cv_accuracy);
+  $('#metrics-note').textContent =
+    `Model: ${r.model_kind}. Sentiment scored with: ${r.sentiment_backend}. Data: ${r.data_source}.`;
+  $('#leak-list').innerHTML = r.leakage.map(l =>
+    `<li><span class="${l.passed ? 'ok' : 'bad'}">${l.passed ? 'PASS' : 'FAIL'}</span> &nbsp;<b>${esc(l.name)}</b><div class="small muted">${esc(l.detail)}</div></li>`).join('');
+  const s = r.split;
+  $('#split-info').innerHTML = `Train: ${s.train_start} to ${s.train_end} (${s.n_train} rows)<br>Test (never used for training): ${s.test_start} to ${s.test_end} (${s.n_test} rows)`;
+}
+
+/* ---------------- start-up ---------------- */
+function show(tab) {
+  $('#view-dash').hidden = tab !== 'dash';
+  $('#view-metrics').hidden = tab !== 'metrics';
+  $('#tab-dash').classList.toggle('active', tab === 'dash');
+  $('#tab-metrics').classList.toggle('active', tab === 'metrics');
+}
+
+(async function init() {
+  $('#tab-dash').onclick = () => show('dash');
+  $('#tab-metrics').onclick = () => show('metrics');
+  $('#go').onclick = predict;
+  $('#ticker').onchange = () => { $('#date').value = ''; loadTicker(); };
+  try {
+    const meta = await api('/api/tickers');
+    $('#disclaimer').textContent = meta.disclaimer;
+    $('#ticker').innerHTML = meta.tickers.map(t => `<option>${t}</option>`).join('');
+    $('#date').min = meta.first_date; $('#date').max = meta.last_date;
+    if (meta.data_source === 'synthetic') {
+      const b = $('#source-badge'); b.hidden = false; b.textContent = 'synthetic demo data';
+    }
+    await Promise.all([loadTicker(), loadMetrics()]);
+  } catch (err) {
+    $('#prediction').innerHTML = `<h2>Prediction</h2><div class="note">Could not load data: ${esc(err.message)}</div>`;
+  }
+})();
+</script>
+</body>
+</html>
